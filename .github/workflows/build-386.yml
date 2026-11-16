@@ -1,0 +1,26 @@
+name: Build Linux 386 Binary
+
+on:
+  workflow_dispatch:  # Permitir activación manual
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Build for Linux 386
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=386 go build -o jtui-linux-386
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jtui-linux-386
+          path: jtui-linux-386
