@@ -114,6 +114,7 @@ func (a *AuthAPI) tryQuickConnectMethod(method, url string, body []byte) (*Quick
 
 	req.Header.Set("User-Agent", fmt.Sprintf("%s/%s", a.client.config.ClientName, a.client.config.Version))
 	req.Header.Set("Authorization", a.client.GetAuthHeader())
+	fmt.Printf("DEBUG Complete AuthHeader: %s\n", a.client.GetAuthHeader()) // <--- AÑADIR AQUÍ
 
 	resp, err := a.client.http.Do(req)
 	if err != nil {
@@ -192,6 +193,8 @@ func (a *AuthAPI) CompleteQuickConnect(secret string) (string, string, error) {
 	if err != nil {
 		return "", "", fmt.Errorf("failed to marshal request: %w", err)
 	}
+
+	fmt.Printf("DEBUG Complete DeviceID: %s\n", a.client.config.DeviceID)
 
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
 	if err != nil {
