@@ -114,7 +114,6 @@ func (a *AuthAPI) tryQuickConnectMethod(method, url string, body []byte) (*Quick
 
 	req.Header.Set("User-Agent", fmt.Sprintf("%s/%s", a.client.config.ClientName, a.client.config.Version))
 	req.Header.Set("Authorization", a.client.GetAuthHeader())
-	fmt.Printf("DEBUG Complete AuthHeader: %s\n", a.client.GetAuthHeader()) // <--- AÑADIR AQUÍ
 
 	resp, err := a.client.http.Do(req)
 	if err != nil {
@@ -193,17 +192,23 @@ func (a *AuthAPI) CompleteQuickConnect(secret string) (string, string, error) {
 	if err != nil {
 		return "", "", fmt.Errorf("failed to marshal request: %w", err)
 	}
-	
-   fmt.Printf("DEBUG Complete Secret: %s\n", secret)
+
+	fmt.Printf("DEBUG Complete Secret: %s\n", secret)
 
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return "", "", fmt.Errorf("failed to create request: %w", err)
 	}
 
+	// Cabecera explícita, SIN Token, y con el DeviceId exacto de la sesión
+	authHeader := fmt.Sprintf(`MediaBrowser Client="%s", Device="CLI", DeviceId="%s", Version="%s"`,
+		a.client.config.ClientName, a.client.config.DeviceID, a.client.config.Version)
+
+	fmt.Printf("DEBUG Complete AuthHeader (manual): %s\n", authHeader)
+
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", fmt.Sprintf("%s/%s", a.client.config.ClientName, a.client.config.Version))
-	req.Header.Set("Authorization", a.client.GetAuthHeader())
+	req.Header.Set("Authorization", authHeader)
 
 	resp, err := a.client.http.Do(req)
 	if err != nil {
@@ -213,6 +218,7 @@ func (a *AuthAPI) CompleteQuickConnect(secret string) (string, string, error) {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+		fmt.Printf("DEBUG Error response: %s\n", string(body))
 		return "", "", fmt.Errorf("failed to get Quick Connect result with status: %d, response: %s", resp.StatusCode, string(body))
 	}
 
