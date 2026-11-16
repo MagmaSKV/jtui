@@ -67,21 +67,27 @@ func (a *AuthAPI) CheckQuickConnectEnabled() (bool, error) {
 func (a *AuthAPI) InitiateQuickConnect() (*QuickConnectData, error) {
 	url := fmt.Sprintf("%s/QuickConnect/Initiate", a.client.config.ServerURL)
 
-	// Generate deviceId if not set
+	// Generate deviceId if not set and SAVE it persistently
 	if a.client.config.DeviceID == "" {
 		a.client.config.DeviceID = fmt.Sprintf("%s-%d", a.client.config.ClientName, time.Now().Unix())
+		// Try to save the config if the client has a method for it
+		if a.client.SaveConfig != nil {
+			if err := a.client.SaveConfig(); err != nil {
+				fmt.Printf("Warning: could not save config with DeviceID: %v\n", err)
+			}
+		}
 	}
-	fmt.Printf("DEBUG Initiate DeviceID: %s\n", a.client.config.DeviceID)
+	fmt.Printf("DEBUG Initiate DeviceID (persisted): %s\n", a.client.config.DeviceID)
 
-	// Try optimized method order (most likely to succeed first)
+	// Try POST with empty JSON first (most compatible), then fallbacks
 	methods := []struct {
 		name   string
 		method string
 		body   []byte
 	}{
-		{"POST method with empty JSON", "POST", []byte("{}")},
-		{"POST method with no body", "POST", nil},
-		{"GET method (legacy)", "GET", nil},
+		{"POST with empty JSON", "POST", []byte("{}")},
+		{"POST with no body", "POST", nil},
+		{"GET (legacy)", "GET", nil},
 	}
 
 	var lastErr error
@@ -113,7 +119,11 @@ func (a *AuthAPI) tryQuickConnectMethod(method, url string, body []byte) (*Quick
 	}
 
 	req.Header.Set("User-Agent", fmt.Sprintf("%s/%s", a.client.config.ClientName, a.client.config.Version))
-	req.Header.Set("Authorization", a.client.GetAuthHeader())
+	// Use an explicit auth header WITHOUT Token for the initiation request
+	authHeader := fmt.Sprintf(`MediaBrowser Client="%s", Device="CLI", DeviceId="%s", Version="%s"`,
+		a.client.config.ClientName, a.client.config.DeviceID, a.client.config.Version)
+	req.Header.Set("Authorization", authHeader)
+	fmt.Printf("DEBUG Initiate AuthHeader: %s\n", authHeader)
 
 	resp, err := a.client.http.Do(req)
 	if err != nil {
@@ -155,7 +165,10 @@ func (a *AuthAPI) CheckQuickConnectStatus(secret string) (bool, error) {
 	}
 
 	req.Header.Set("User-Agent", fmt.Sprintf("%s/%s", a.client.config.ClientName, a.client.config.Version))
-	req.Header.Set("Authorization", a.client.GetAuthHeader())
+	// Explicit auth header without Token
+	authHeader := fmt.Sprintf(`MediaBrowser Client="%s", Device="CLI", DeviceId="%s", Version="%s"`,
+		a.client.config.ClientName, a.client.config.DeviceID, a.client.config.Version)
+	req.Header.Set("Authorization", authHeader)
 
 	resp, err := a.client.http.Do(req)
 	if err != nil {
@@ -200,10 +213,9 @@ func (a *AuthAPI) CompleteQuickConnect(secret string) (string, string, error) {
 		return "", "", fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Cabecera explícita, SIN Token, y con el DeviceId exacto de la sesión
+	// Explicit auth header WITHOUT Token, using the persisted DeviceID
 	authHeader := fmt.Sprintf(`MediaBrowser Client="%s", Device="CLI", DeviceId="%s", Version="%s"`,
 		a.client.config.ClientName, a.client.config.DeviceID, a.client.config.Version)
-
 	fmt.Printf("DEBUG Complete AuthHeader (manual): %s\n", authHeader)
 
 	req.Header.Set("Content-Type", "application/json")
@@ -266,21 +278,30 @@ func (a *AuthAPI) AuthenticateWithQuickConnect() error {
 
 	timeout := time.Now().Add(60 * time.Second)
 	for time.Now().Before(timeout) {
-		// Intentamos directamente el canje, sin comprobar el estado primero
+		// Attempt the exchange directly, without checking status first
 		fmt.Printf("DEBUG Attempting CompleteQuickConnect with Secret: %s\n", quickConnectData.Secret)
 		accessToken, userID, err := a.CompleteQuickConnect(quickConnectData.Secret)
 		if err == nil {
 			a.client.config.AccessToken = accessToken
 			a.client.config.UserID = userID
+			// Persist the session
+			if saveErr := a.SaveSession(); saveErr != nil {
+				fmt.Printf("Warning: could not save session: %v\n", saveErr)
+			}
 			return nil
 		}
 
-		// Si falla, esperamos y reintentamos (puede que el usuario aún no haya autorizado)
 		fmt.Printf("DEBUG CompleteQuickConnect failed: %v\n", err)
 		time.Sleep(2 * time.Second)
 	}
 
 	return fmt.Errorf("Quick Connect authentication timed out after 60 seconds")
+}
+
+// SetManualAccessToken allows injecting a pre-obtained AccessToken, bypassing Quick Connect
+func (a *AuthAPI) SetManualAccessToken(token, userID string) {
+	a.client.config.AccessToken = token
+	a.client.config.UserID = userID
 }
 
 // ValidateSession validates the current authentication session
@@ -296,7 +317,7 @@ func (a *AuthAPI) ValidateSession() error {
 		return fmt.Errorf("failed to create validation request: %w", err)
 	}
 
-	req.Header.Set("Authorization", fmt.Sprintf("MediaBrowser Token=\"%s\"", a.client.config.AccessToken))
+	req.Header.Set("Authorization", fmt.Sprintf(`MediaBrowser Token="%s"`, a.client.config.AccessToken))
 	req.Header.Set("User-Agent", fmt.Sprintf("%s/%s", a.client.config.ClientName, a.client.config.Version))
 
 	resp, err := a.client.http.Do(req)
@@ -328,15 +349,12 @@ func (a *AuthAPI) LoadSession() error {
 		return fmt.Errorf("failed to read session file: %w", err)
 	}
 
-	// Try to parse as JSON for new format
 	var sessionData SessionData
 	if err := json.Unmarshal(content, &sessionData); err == nil {
 		a.client.config.AccessToken = sessionData.AccessToken
 		a.client.config.UserID = sessionData.UserID
 	} else {
-		// Old format - just the token
 		a.client.config.AccessToken = strings.TrimSpace(string(content))
-		// Need to get userID by validating
 		if err := a.validateAndUpdateSession(); err != nil {
 			return fmt.Errorf("failed to validate session and get userID: %w", err)
 		}
