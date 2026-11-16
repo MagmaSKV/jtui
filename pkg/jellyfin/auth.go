@@ -193,8 +193,8 @@ func (a *AuthAPI) CompleteQuickConnect(secret string) (string, string, error) {
 	if err != nil {
 		return "", "", fmt.Errorf("failed to marshal request: %w", err)
 	}
-
-	fmt.Printf("DEBUG Complete DeviceID: %s\n", a.client.config.DeviceID)
+	
+   fmt.Printf("DEBUG Complete Secret: %s\n", secret)
 
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
 	if err != nil {
@@ -267,6 +267,7 @@ func (a *AuthAPI) AuthenticateWithQuickConnect() error {
 		}
 
 		if authenticated {
+			fmt.Printf("DEBUG Calling CompleteQuickConnect with Secret: %s\n", quickConnectData.Secret)
 			accessToken, userID, err := a.CompleteQuickConnect(quickConnectData.Secret)
 			if err != nil {
 				return fmt.Errorf("failed to complete Quick Connect: %w", err)
