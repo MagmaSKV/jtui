@@ -266,25 +266,17 @@ func (a *AuthAPI) AuthenticateWithQuickConnect() error {
 
 	timeout := time.Now().Add(60 * time.Second)
 	for time.Now().Before(timeout) {
-		authenticated, err := a.CheckQuickConnectStatus(quickConnectData.Secret)
-		if err != nil {
-			time.Sleep(2 * time.Second)
-			continue
-		}
-
-		if authenticated {
-			fmt.Printf("DEBUG Calling CompleteQuickConnect with Secret: %s\n", quickConnectData.Secret)
-			accessToken, userID, err := a.CompleteQuickConnect(quickConnectData.Secret)
-			if err != nil {
-				return fmt.Errorf("failed to complete Quick Connect: %w", err)
-			}
-
+		// Intentamos directamente el canje, sin comprobar el estado primero
+		fmt.Printf("DEBUG Attempting CompleteQuickConnect with Secret: %s\n", quickConnectData.Secret)
+		accessToken, userID, err := a.CompleteQuickConnect(quickConnectData.Secret)
+		if err == nil {
 			a.client.config.AccessToken = accessToken
 			a.client.config.UserID = userID
-
 			return nil
 		}
 
+		// Si falla, esperamos y reintentamos (puede que el usuario aún no haya autorizado)
+		fmt.Printf("DEBUG CompleteQuickConnect failed: %v\n", err)
 		time.Sleep(2 * time.Second)
 	}
 
