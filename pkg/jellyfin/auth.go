@@ -71,6 +71,7 @@ func (a *AuthAPI) InitiateQuickConnect() (*QuickConnectData, error) {
 	if a.client.config.DeviceID == "" {
 		a.client.config.DeviceID = fmt.Sprintf("%s-%d", a.client.config.ClientName, time.Now().Unix())
 	}
+	fmt.Printf("DEBUG Initiate DeviceID: %s\n", a.client.config.DeviceID)
 
 	// Try optimized method order (most likely to succeed first)
 	methods := []struct {
