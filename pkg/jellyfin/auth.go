@@ -67,15 +67,9 @@ func (a *AuthAPI) CheckQuickConnectEnabled() (bool, error) {
 func (a *AuthAPI) InitiateQuickConnect() (*QuickConnectData, error) {
 	url := fmt.Sprintf("%s/QuickConnect/Initiate", a.client.config.ServerURL)
 
-	// Generate deviceId if not set and SAVE it persistently
+	// Generate deviceId if not set
 	if a.client.config.DeviceID == "" {
-		a.client.config.DeviceID = fmt.Sprintf("%s-%d", a.client.config.ClientName, time.Now().Unix())
-		// Try to save the config if the client has a method for it
-		if a.client.SaveConfig != nil {
-			if err := a.client.SaveConfig(); err != nil {
-				fmt.Printf("Warning: could not save config with DeviceID: %v\n", err)
-			}
-		}
+	    a.client.config.DeviceID = fmt.Sprintf("%s-%d", a.client.config.ClientName, time.Now().Unix())
 	}
 	fmt.Printf("DEBUG Initiate DeviceID (persisted): %s\n", a.client.config.DeviceID)
 
