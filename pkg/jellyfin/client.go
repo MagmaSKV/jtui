@@ -45,8 +45,11 @@ func NewClient(config *Config) *Client {
 	if config.Timeout == 0 {
 		config.Timeout = 10 * time.Second
 	}
+	// Ensure a stable DeviceID is set from the start
+	if config.DeviceID == "" {
+		config.DeviceID = fmt.Sprintf("%s-device", config.ClientName)
+	}
 
-	// Optimized HTTP client with enhanced connection pooling
 	transport := &http.Transport{
 		MaxIdleConns:          50,
 		MaxIdleConnsPerHost:   10,
@@ -68,7 +71,6 @@ func NewClient(config *Config) *Client {
 		http:   httpClient,
 	}
 
-	// Initialize API modules
 	client.Auth = &AuthAPI{client: client}
 	client.Libraries = &LibrariesAPI{client: client}
 	client.Items = &ItemsAPI{client: client}
@@ -78,12 +80,12 @@ func NewClient(config *Config) *Client {
 		client: client,
 		Queue:  NewDownloadQueue(),
 		downloadHTTP: &http.Client{
-			Timeout: 0, // no timeout for large file transfers
+			Timeout: 0,
 			Transport: &http.Transport{
 				MaxIdleConns:        10,
 				IdleConnTimeout:     90 * time.Second,
 				TLSHandshakeTimeout: 10 * time.Second,
-				ForceAttemptHTTP2:   false, // use HTTP/1.1 to avoid stream resets
+				ForceAttemptHTTP2:   false,
 			},
 		},
 	}
@@ -121,10 +123,18 @@ func (c *Client) IsAuthenticated() bool {
 	return c.config.AccessToken != "" && c.config.UserID != ""
 }
 
-// GetAuthHeader returns the MediaBrowser authorization header
+// GetAuthHeader returns the MediaBrowser authorization header WITHOUT Token.
+// This is the correct header for authentication endpoints (Initiate, Connect, AuthenticateWithQuickConnect).
 func (c *Client) GetAuthHeader() string {
 	return fmt.Sprintf(`MediaBrowser Client="%s", Device="CLI", DeviceId="%s", Version="%s"`,
 		c.config.ClientName, c.config.DeviceID, c.config.Version)
+}
+
+// GetAuthenticatedAuthHeader returns the MediaBrowser authorization header WITH Token.
+// Use this for all endpoints that require an active session.
+func (c *Client) GetAuthenticatedAuthHeader() string {
+	return fmt.Sprintf(`MediaBrowser Client="%s", Device="CLI", DeviceId="%s", Version="%s", Token="%s"`,
+		c.config.ClientName, c.config.DeviceID, c.config.Version, c.config.AccessToken)
 }
 
 // GetTokenHeader returns the X-Emby-Token header value
@@ -133,22 +143,14 @@ func (c *Client) GetTokenHeader() string {
 }
 
 // doRequest creates and executes an authenticated HTTP request, returning the response body.
-// It sets the full MediaBrowser authorization header and Content-Type.
-// The caller is responsible for providing the correct method, URL, and optional body.
+// It uses the full MediaBrowser authorization header WITH Token.
 func (c *Client) doRequest(method, url string, body io.Reader) ([]byte, error) {
 	req, err := http.NewRequest(method, url, body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Authorization", fmt.Sprintf(
-		"MediaBrowser Client=\"%s\", Device=\"%s\", DeviceId=\"%s\", Version=\"%s\", Token=\"%s\"",
-		c.config.ClientName,
-		c.config.ClientName,
-		c.config.DeviceID,
-		c.config.Version,
-		c.config.AccessToken,
-	))
+	req.Header.Set("Authorization", c.GetAuthenticatedAuthHeader())
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.http.Do(req)
@@ -184,7 +186,6 @@ func (c *Client) doRequestDecode(method, url string, body io.Reader, dest interf
 }
 
 // doTokenRequest creates and executes an HTTP request with the simple Token authorization header.
-// Used by libraries and auth endpoints that use the shorter auth format.
 func (c *Client) doTokenRequest(method, url string) ([]byte, error) {
 	req, err := http.NewRequest(method, url, nil)
 	if err != nil {
