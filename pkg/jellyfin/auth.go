@@ -67,13 +67,12 @@ func (a *AuthAPI) CheckQuickConnectEnabled() (bool, error) {
 func (a *AuthAPI) InitiateQuickConnect() (*QuickConnectData, error) {
 	url := fmt.Sprintf("%s/QuickConnect/Initiate", a.client.config.ServerURL)
 
-	// Generate deviceId if not set
+	// DeviceID is already set by NewClient, but ensure it's not empty
 	if a.client.config.DeviceID == "" {
-	    a.client.config.DeviceID = fmt.Sprintf("%s-%d", a.client.config.ClientName, time.Now().Unix())
+		a.client.config.DeviceID = fmt.Sprintf("%s-device", a.client.config.ClientName)
 	}
-	fmt.Printf("DEBUG Initiate DeviceID (persisted): %s\n", a.client.config.DeviceID)
+	fmt.Printf("DEBUG Initiate DeviceID: %s\n", a.client.config.DeviceID)
 
-	// Try POST with empty JSON first (most compatible), then fallbacks
 	methods := []struct {
 		name   string
 		method string
@@ -113,11 +112,9 @@ func (a *AuthAPI) tryQuickConnectMethod(method, url string, body []byte) (*Quick
 	}
 
 	req.Header.Set("User-Agent", fmt.Sprintf("%s/%s", a.client.config.ClientName, a.client.config.Version))
-	// Use an explicit auth header WITHOUT Token for the initiation request
-	authHeader := fmt.Sprintf(`MediaBrowser Client="%s", Device="CLI", DeviceId="%s", Version="%s"`,
-		a.client.config.ClientName, a.client.config.DeviceID, a.client.config.Version)
-	req.Header.Set("Authorization", authHeader)
-	fmt.Printf("DEBUG Initiate AuthHeader: %s\n", authHeader)
+	// Use GetAuthHeader() which does NOT include Token
+	req.Header.Set("Authorization", a.client.GetAuthHeader())
+	fmt.Printf("DEBUG Initiate AuthHeader: %s\n", a.client.GetAuthHeader())
 
 	resp, err := a.client.http.Do(req)
 	if err != nil {
@@ -159,10 +156,8 @@ func (a *AuthAPI) CheckQuickConnectStatus(secret string) (bool, error) {
 	}
 
 	req.Header.Set("User-Agent", fmt.Sprintf("%s/%s", a.client.config.ClientName, a.client.config.Version))
-	// Explicit auth header without Token
-	authHeader := fmt.Sprintf(`MediaBrowser Client="%s", Device="CLI", DeviceId="%s", Version="%s"`,
-		a.client.config.ClientName, a.client.config.DeviceID, a.client.config.Version)
-	req.Header.Set("Authorization", authHeader)
+	// Use GetAuthHeader() which does NOT include Token
+	req.Header.Set("Authorization", a.client.GetAuthHeader())
 
 	resp, err := a.client.http.Do(req)
 	if err != nil {
@@ -207,10 +202,9 @@ func (a *AuthAPI) CompleteQuickConnect(secret string) (string, string, error) {
 		return "", "", fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Explicit auth header WITHOUT Token, using the persisted DeviceID
-	authHeader := fmt.Sprintf(`MediaBrowser Client="%s", Device="CLI", DeviceId="%s", Version="%s"`,
-		a.client.config.ClientName, a.client.config.DeviceID, a.client.config.Version)
-	fmt.Printf("DEBUG Complete AuthHeader (manual): %s\n", authHeader)
+	// Use GetAuthHeader() which does NOT include Token
+	authHeader := a.client.GetAuthHeader()
+	fmt.Printf("DEBUG Complete AuthHeader: %s\n", authHeader)
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", fmt.Sprintf("%s/%s", a.client.config.ClientName, a.client.config.Version))
@@ -272,13 +266,11 @@ func (a *AuthAPI) AuthenticateWithQuickConnect() error {
 
 	timeout := time.Now().Add(60 * time.Second)
 	for time.Now().Before(timeout) {
-		// Attempt the exchange directly, without checking status first
 		fmt.Printf("DEBUG Attempting CompleteQuickConnect with Secret: %s\n", quickConnectData.Secret)
 		accessToken, userID, err := a.CompleteQuickConnect(quickConnectData.Secret)
 		if err == nil {
 			a.client.config.AccessToken = accessToken
 			a.client.config.UserID = userID
-			// Persist the session
 			if saveErr := a.SaveSession(); saveErr != nil {
 				fmt.Printf("Warning: could not save session: %v\n", saveErr)
 			}
